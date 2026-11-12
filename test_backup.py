@@ -8,14 +8,35 @@ import sqlite3
 import subprocess
 import tempfile
 import unittest
+from argparse import Namespace
 from contextlib import closing, contextmanager
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.parse import quote, urlencode
 from urllib.request import urlopen
+from unittest.mock import patch
 
 import backup
 import catalog
+
+
+class RecoveryPackage(unittest.TestCase):
+    def test_verify_package_from_previous_backend(self):
+        with tempfile.TemporaryDirectory() as work:
+            root = Path(work)
+            settings = {'bucket': 'test-123', 'prefix': 'backup/v1',
+                        'region': 'ap-guangzhou', 'endpoint': 'cos-internal.ap-guangzhou.tencentcos.cn'}
+            (root / 'connection.json').write_text(json.dumps(settings))
+            args = Namespace(command='verify-key', data_dir=root, file=root / 'recovery.gpg')
+            old = {'repository': 'rclone:codexcos:test-123/backup/v1', 'password': 'test-password'}
+            with patch.object(backup.subprocess, 'check_output') as decrypt, \
+                    patch.object(backup, 'keychain', return_value=b'test-password'), patch('builtins.print'):
+                decrypt.return_value = json.dumps(old).encode()
+                backup.recovery_key(args)
+                old['repository'] = 'rclone:codexcos:test-123/another-prefix'
+                decrypt.return_value = json.dumps(old).encode()
+                with self.assertRaisesRegex(backup.BackupError, 'different repository'):
+                    backup.recovery_key(args)
 
 
 class BackupRoundTrip(unittest.TestCase):
@@ -89,6 +110,9 @@ class BackupRoundTrip(unittest.TestCase):
             second = json.loads(run('run'))
             self.assertNotEqual(first['snapshot'], second['snapshot'])
             self.assertEqual(second['archived'], 0)
+            snapshots = run('probe')
+            self.assertIn(first['snapshot'][:8], snapshots)
+            self.assertIn(second['snapshot'][:8], snapshots)
             with closing(catalog.readonly(data / ('catalog-' + second['snapshot'] + '.sqlite'))) as db:
                 self.assertFalse(catalog.results(db, {'q': ['归档关键词']})[1])
             attachment_path = 'codex/' + attached.relative_to(source).as_posix()

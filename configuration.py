@@ -23,7 +23,7 @@ class CosTarget:
             raise ValueError(f'Create {file} from connection.example.json')
         data = json.loads(file.read_bytes())
         if data.get('transport', 'direct') != 'direct':
-            raise ValueError('This release supports direct COS access only. Configure a public COS '
+            raise ValueError('This release supports direct COS access only. Configure a COS '
                              'endpoint and dedicated credentials in a separate data directory. '
                              'See docs/usage.md for migration steps.')
         try:
@@ -43,9 +43,9 @@ class CosTarget:
                    gpg_public_key_url=data.get('gpg_public_key_url', ''))
 
     @property
-    def remote(self):
-        return f'codexcos:{self.bucket}/{self.prefix}'
+    def repository_path(self):
+        return f'{self.bucket}/{self.prefix}'
 
     @property
     def repository(self):
-        return 'rclone:' + self.remote
+        return f's3:https://{self.endpoint}/{self.repository_path}'

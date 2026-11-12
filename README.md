@@ -1,6 +1,6 @@
 # Codex Session Backup
 
-Back up, search, and restore local Codex chats on macOS. The CLI stores encrypted incremental snapshots in a private Tencent Cloud COS bucket using restic. A local browser interface lets you search active and archived chats.
+Back up, search, and restore local Codex chats on macOS. The CLI uses restic’s native S3 backend to store encrypted incremental snapshots in a private Tencent Cloud COS bucket. A local browser interface lets you search active and archived chats.
 
 [简体中文](https://github.com/WayneGongCN/codex-session-backup/blob/main/README.zh-CN.md) · [Project homepage](https://codex-session-backup.waynegong.com/) · [Release v0.1.1](https://github.com/WayneGongCN/codex-session-backup/releases/tag/v0.1.1)
 
@@ -11,15 +11,15 @@ Back up, search, and restore local Codex chats on macOS. The CLI stores encrypte
 Install the dependencies with Homebrew. The SQLite library bundled with Python must support FTS5 with the trigram tokenizer. GnuPG encrypts and decrypts the recovery package.
 
 ```sh
-brew install python restic rclone zstd gnupg
+brew install python restic zstd gnupg
 python3 -c 'import sqlite3; sqlite3.connect(":memory:").execute("CREATE VIRTUAL TABLE fts_check USING fts5(text, tokenize=trigram)")'
 
-git clone --depth 1 --branch v0.1.1 https://github.com/WayneGongCN/codex-session-backup.git
+git clone --depth 1 https://github.com/WayneGongCN/codex-session-backup.git
 cd codex-session-backup
 ./codex-backup --help
 ```
 
-You can also download **Source code (tar.gz)** from the release and run the same commands after extracting it. Keep the scripts, Python modules, and `search_assets/` together. Use a stable installation path before enabling scheduled backups.
+Keep the scripts, Python modules, and `search_assets/` together. Use a stable installation path before enabling scheduled backups.
 
 ### Run a local recovery drill
 

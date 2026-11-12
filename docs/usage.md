@@ -4,6 +4,8 @@
 
 ## 配置 COS 直连
 
+工具通过 restic 原生 S3 后端连接 COS，仓库地址为 `s3:https://<endpoint>/<bucket>/<prefix>`。
+
 1. 在腾讯云创建一个私有的标准 COS 桶，选一个专用前缀。检查生命周期规则，避免备份对象自动过期或转入需要解冻的存储类型。
 2. 从模板创建本地配置。配置存放在 macOS 的用户数据目录，密钥和仓库口令存放在当前用户的钥匙串。
 
@@ -13,7 +15,7 @@
    cp -n connection.example.json "$backup_data/connection.json"
    ```
 
-3. 编辑 `connection.json`。填写完整桶名（包含 APPID）、仓库前缀、地域码和该地域的 COS 公网服务端点。端点只填写主机名，例如 `cos.ap-guangzhou.myqcloud.com`。设定固定的 `backup_host`，让同一备份源的快照归入同一保留组。填写自己的 GPG 主公钥完整指纹，以及可下载该公钥的 HTTPS 地址。 [腾讯云 COS 地域和访问域名](https://cloud.tencent.com/document/product/436/6224)
+3. 编辑 `connection.json`。填写完整桶名（包含 APPID）、仓库前缀、地域码和当前机器可达的 COS 服务端点。端点只填写主机名，例如广州公网 `cos.ap-guangzhou.myqcloud.com` 或内网 `cos-internal.ap-guangzhou.tencentcos.cn`。设定固定的 `backup_host`，让同一备份源的快照归入同一保留组。填写自己的 GPG 主公钥完整指纹，以及可下载该公钥的 HTTPS 地址。 [腾讯云 COS 地域和访问域名](https://cloud.tencent.com/document/product/436/6224)
 4. 导入仅能访问备份前缀的写入凭据。准备执行保留清理时，再导入独立的维护凭据。命令通过终端隐藏输入。
 
    ```sh
@@ -34,7 +36,7 @@ python3 provision_cos.py --profile PROFILE --apply
 
 ### 从旧接入迁移
 
-在单独的数据目录复制一份配置，删除 `transport` 字段（直连配置也可保留 `"transport": "direct"`），改用桶所在地域的公网端点并导入专用凭据。下文每条命令都可在子命令前加 `--data-dir /absolute/path/to/data`。数据目录分离配置、运行状态和搜索缓存。钥匙串条目按 macOS 用户共享，切换已有直连凭据前先确认当前任务使用的身份。
+已有 COS 直连配置和钥匙串凭据可以沿用。若原先使用中转连接，在单独的数据目录复制一份配置，删除 `transport` 字段，选择当前机器可达的 COS 服务端点并导入专用凭据。下文每条命令都可在子命令前加 `--data-dir /absolute/path/to/data`。数据目录分离配置、运行状态和搜索缓存。钥匙串条目按 macOS 用户共享，切换已有直连凭据前先确认当前任务使用的身份。
 
 复用同一仓库时，保持桶、前缀、`backup_host` 和 restic 口令一致。先运行 `probe`，再从已有快照做空目录恢复。迁移到新仓库时，将原仓库视为独立的历史备份并按新仓库流程初始化。
 
@@ -49,7 +51,7 @@ python3 provision_cos.py --profile PROFILE --apply
 
 换机恢复时，先配置原仓库、恢复可解密的 GPG 密钥并导入 COS 凭据，再运行 `./codex-backup recover-key /path/to/recovery.gpg`。已有恢复包的用户可直接使用该包。
 
-已有 restic 仓库运行 `./codex-backup probe`。空前缀首次运行 `./codex-backup init`。两条命令都会检查写入身份无法列出桶根目录，并在指定前缀的锁目录写入、读回和清理随机测试对象。
+已有 restic 仓库运行 `./codex-backup probe`，它会解锁仓库并以只读方式列出快照。空前缀首次运行 `./codex-backup init` 创建仓库。
 
 ```sh
 ./codex-backup run

@@ -95,7 +95,7 @@ def stream_digest(stream):
 
 
 def clean_env():
-    env = {k: v for k, v in os.environ.items() if not k.startswith(('RESTIC_', 'RCLONE_', 'AWS_'))}
+    env = {k: v for k, v in os.environ.items() if not k.startswith(('RESTIC_', 'AWS_'))}
     env['PATH'] = '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin'
     return env
 
@@ -119,22 +119,17 @@ class Repository:
         self.env['RESTIC_PASSWORD'] = keychain('repository-password').decode()
         credentials = json.loads(keychain('cos-maintenance' if maintenance else 'cos-writer'))
         self.env.update({
-            'RCLONE_CONFIG': '/dev/null',
-            'RCLONE_CONFIG_CODEXCOS_TYPE': 's3',
-            'RCLONE_CONFIG_CODEXCOS_PROVIDER': 'TencentCOS',
-            'RCLONE_CONFIG_CODEXCOS_ENDPOINT': 'https://' + self.target.endpoint,
-            'RCLONE_CONFIG_CODEXCOS_REGION': self.target.region,
-            'RCLONE_CONFIG_CODEXCOS_FORCE_PATH_STYLE': 'false',
-            'RCLONE_CONFIG_CODEXCOS_NO_CHECK_BUCKET': 'true',
-            'RCLONE_CONFIG_CODEXCOS_ACL': 'private',
-            'RCLONE_CONFIG_CODEXCOS_ACCESS_KEY_ID': credentials['id'],
-            'RCLONE_CONFIG_CODEXCOS_SECRET_ACCESS_KEY': credentials['key'],
+            'AWS_ACCESS_KEY_ID': credentials['id'],
+            'AWS_SECRET_ACCESS_KEY': credentials['key'],
+            'AWS_DEFAULT_REGION': self.target.region,
             'NO_PROXY': self.target.endpoint + ',.' + self.target.endpoint,
             'no_proxy': self.target.endpoint + ',.' + self.target.endpoint,
         })
 
     def restic(self, *args, cwd=None, output=subprocess.PIPE):
-        result = subprocess.run(['restic', '-r', self.url, *args],
+        # COS and the scoped CAM policy use the bucket's virtual-hosted domain.
+        options = () if self.local else ('-o', 's3.bucket-lookup=dns')
+        result = subprocess.run(['restic', '-r', self.url, *options, *args],
             env=self.env, cwd=cwd, stdout=output, stderr=subprocess.PIPE)
         if result.returncode:
             detail = result.stderr.decode(errors='replace').strip().splitlines()
@@ -144,34 +139,6 @@ class Repository:
 
     def dump(self, snapshot, relative, output=subprocess.PIPE):
         return self.restic('dump', snapshot, '/bundle/' + relative, output=output)
-
-    def probe(self):
-        if self.local:
-            return
-        def rclone(*args, data=None, expect_denied=False):
-            result = subprocess.run(['rclone', *args, '--retries', '1', '--low-level-retries', '1',
-                                     '--contimeout', '10s', '--timeout', '30s'],
-                                    env=self.env, input=data, capture_output=True)
-            if expect_denied:
-                if result.returncode and ('AccessDenied' in result.stderr.decode(errors='replace')
-                                           or 'StatusCode: 403' in result.stderr.decode(errors='replace')):
-                    return
-                raise BackupError('COS credentials must be denied listing the bucket root')
-            if result.returncode:
-                raise BackupError('Signed COS probe failed: ' +
-                                  (result.stderr.decode(errors='replace').splitlines() or ['unknown error'])[-1][:500])
-            return result.stdout
-
-        rclone('lsf', f'codexcos:{self.target.bucket}', '--max-depth', '1', expect_denied=True)
-        probe = self.target.remote + '/locks/probe-' + secrets.token_hex(16)
-        sample = secrets.token_bytes(64)
-        rclone('rcat', probe, '--size', str(len(sample)), data=sample)
-        try:
-            rclone('lsf', self.target.remote, '--max-depth', '1')
-            if rclone('cat', probe) != sample:
-                raise BackupError('COS probe readback differs from upload')
-        finally:
-            rclone('deletefile', probe)
 
 
 @contextmanager
@@ -471,7 +438,9 @@ def recovery_key(args):
     if args.command in ('recover-key', 'verify-key'):
         raw = subprocess.check_output(['gpg', '--decrypt', str(args.file)])
         data = json.loads(raw)
-        if data.get('repository') != target.repository or not data.get('password'):
+        # Older recovery packages identified the same COS repository by its transport URI.
+        repositories = (target.repository_path, target.repository, 'rclone:codexcos:' + target.repository_path)
+        if data.get('repository') not in repositories or not data.get('password'):
             raise BackupError('Recovery package belongs to a different repository')
         recovered = data['password'].encode()
         if args.command == 'verify-key':
@@ -506,7 +475,7 @@ def recovery_key(args):
         if primary != [target.gpg_fingerprint.upper()]:
             raise BackupError('Recovery public-key fingerprint differs from the configured fingerprint')
         subprocess.run(cmd + ['--import', str(public)], check=True, capture_output=True)
-        payload = json.dumps({'repository': target.repository, 'password': password.decode()}).encode()
+        payload = json.dumps({'repository': target.repository_path, 'password': password.decode()}).encode()
         encrypted = subprocess.check_output(cmd + ['--trust-model', 'always', '--recipient',
                                                     target.gpg_fingerprint, '--encrypt'], input=payload)
         with args.file.open('xb') as out:
@@ -628,12 +597,10 @@ def main():
             repo.dump(selected, args.relative, sys.stdout.buffer)
         return
     with locked(args.data_dir):
-        if args.command in ('init', 'probe'):
-            repo.probe()
-            if args.command == 'init':
-                print(repo.restic('init', '--repository-version', '2').decode().strip())
-            else:
-                print('Storage probe passed')
+        if args.command == 'init':
+            print(repo.restic('init', '--repository-version', '2').decode().strip())
+        elif args.command == 'probe':
+            print(repo.restic('snapshots', '--no-lock').decode().strip())
         elif args.command == 'run':
             status = read_json(status_file, {})
             try:

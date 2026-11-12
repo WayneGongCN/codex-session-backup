@@ -1,6 +1,6 @@
 # Codex Session Backup
 
-在 macOS 上增量备份、搜索和校验恢复 Codex 会话。用 restic 将加密快照存入私有腾讯云 COS 桶，并在本地浏览普通和归档会话。
+在 macOS 上增量备份、搜索和校验恢复 Codex 会话。用 restic 原生 S3 后端将加密快照存入私有腾讯云 COS 桶，并在本地浏览普通和归档会话。
 
 [English](https://github.com/WayneGongCN/codex-session-backup/blob/main/README.md) · [项目首页](https://codex-session-backup.waynegong.com/zh-cn/) · [使用指南](docs/usage.md) · [下载 v0.1.1](https://github.com/WayneGongCN/codex-session-backup/releases/tag/v0.1.1)
 
@@ -11,15 +11,15 @@
 在 macOS 上用 Homebrew 安装依赖。Python 的 SQLite 需要启用 FTS5 和 trigram 分词。GnuPG 用于生成和解密恢复包。
 
 ```sh
-brew install python restic rclone zstd gnupg
+brew install python restic zstd gnupg
 python3 -c 'import sqlite3; sqlite3.connect(":memory:").execute("CREATE VIRTUAL TABLE fts_check USING fts5(text, tokenize=trigram)")'
 
-git clone --depth 1 --branch v0.1.1 https://github.com/WayneGongCN/codex-session-backup.git
+git clone --depth 1 https://github.com/WayneGongCN/codex-session-backup.git
 cd codex-session-backup
 ./codex-backup --help
 ```
 
-也可以从 Release 下载 **Source code (tar.gz)**，解压后在目录中运行同样的命令。请将脚本、Python 模块和 `search_assets/` 放在一起。如果要启用定时备份，请把目录放在稳定的位置。
+请将脚本、Python 模块和 `search_assets/` 放在一起。如果要启用定时备份，请把目录放在稳定的位置。
 
 ### 本地演练
 
