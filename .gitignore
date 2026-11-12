@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.DS_Store
+.env
+.env.*
+connection.json
+status.json
+*.gpg
+*.sqlite*
+*.jsonl*
+*.log
+bundle/
+restic-cache/

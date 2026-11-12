@@ -1,0 +1,9 @@
+{
+  "bucket": "example-backups-1234567890",
+  "prefix": "backups/codex-sessions/v1",
+  "endpoint": "cos.ap-guangzhou.myqcloud.com",
+  "region": "ap-guangzhou",
+  "backup_host": "codex-mac",
+  "gpg_fingerprint": "REPLACE_WITH_THE_FULL_PRIMARY_KEY_FINGERPRINT",
+  "gpg_public_key_url": "https://example.com/backup-public-key.gpg"
+}
