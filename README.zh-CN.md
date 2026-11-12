@@ -2,9 +2,9 @@
 
 在 macOS 上增量备份、搜索和校验恢复 Codex 会话。用 restic 将加密快照存入私有腾讯云 COS 桶，并在本地浏览普通和归档会话。
 
-[English](https://github.com/WayneGongCN/codex-session-backup/blob/main/README.md) · [项目首页](https://codex-session-backup.waynegong.com/) · [使用指南](docs/usage.md) · [下载 v0.1.0](https://github.com/WayneGongCN/codex-session-backup/releases/tag/v0.1.0)
+[English](https://github.com/WayneGongCN/codex-session-backup/blob/main/README.md) · [项目首页](https://codex-session-backup.waynegong.com/zh-cn/) · [使用指南](docs/usage.md) · [下载 v0.1.0](https://github.com/WayneGongCN/codex-session-backup/releases/tag/v0.1.0)
 
-![本地搜索页，显示合成会话的标题、归档状态和筛选条件](docs/search-demo.png)
+![本地搜索示意图，使用合成会话展示归档状态和筛选条件](docs/search-demo-zh-cn.png)
 
 ## 快速开始
 

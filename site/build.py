@@ -1,4 +1,4 @@
-"""Build the homepage and copy its synthetic screenshot into Static Assets."""
+"""Build both homepage languages and copy their illustrations into Static Assets."""
 
 import shutil
 from pathlib import Path
@@ -8,4 +8,6 @@ dist = site / "dist"
 if dist.exists():
     shutil.rmtree(dist)
 shutil.copytree(site / "public", dist)
-shutil.copyfile(site.parent / "docs/search-demo.png", dist / "search-demo.png")
+for language in ("en", "zh-cn"):
+    image = f"search-demo-{language}.png"
+    shutil.copyfile(site.parent / "docs" / image, dist / image)

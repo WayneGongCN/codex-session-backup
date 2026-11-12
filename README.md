@@ -4,7 +4,7 @@ Back up, search, and restore local Codex chats on macOS. The CLI stores encrypte
 
 [简体中文](https://github.com/WayneGongCN/codex-session-backup/blob/main/README.zh-CN.md) · [Project homepage](https://codex-session-backup.waynegong.com/) · [Release v0.1.0](https://github.com/WayneGongCN/codex-session-backup/releases/tag/v0.1.0)
 
-![Local search with synthetic chat titles, archive status, and filters](docs/search-demo.png)
+![Illustration of local search with synthetic chats, archive status, and filters](docs/search-demo-en.png)
 
 ## Quick start
 

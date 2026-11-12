@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Codex 会话备份 — 在 macOS 上备份与恢复 Codex 会话</title>
+  <meta name="description" content="在 macOS 上增量加密备份、本地搜索和校验恢复 Codex 会话。">
+  <link rel="canonical" href="https://codex-session-backup.waynegong.com/zh-cn/">
+  <link rel="alternate" hreflang="en" href="https://codex-session-backup.waynegong.com/">
+  <link rel="alternate" hreflang="zh-CN" href="https://codex-session-backup.waynegong.com/zh-cn/">
+  <link rel="alternate" hreflang="x-default" href="https://codex-session-backup.waynegong.com/">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Codex 会话备份">
+  <meta property="og:description" content="在 macOS 上备份、搜索和恢复本地 Codex 会话。">
+  <meta property="og:url" content="https://codex-session-backup.waynegong.com/zh-cn/">
+  <meta property="og:image" content="https://codex-session-backup.waynegong.com/search-demo-zh-cn.png">
+  <meta property="og:locale" content="zh_CN">
+  <meta property="og:locale:alternate" content="en_US">
+  <meta name="theme-color" content="#f6f4eb">
+  <link rel="stylesheet" href="/site.css">
+</head>
+<body>
+  <a class="skip" href="#main">跳转到正文</a>
+  <header class="top shell">
+    <a class="wordmark" href="/zh-cn/" aria-label="Codex 会话备份首页"><span class="mark" aria-hidden="true"></span>Codex 会话备份</a>
+    <nav aria-label="主导航">
+      <a href="#workflow">使用流程</a>
+      <a href="#release">发布状态</a>
+      <div class="languages" role="group" aria-label="语言">
+        <a href="/" lang="en" hreflang="en">English</a>
+        <a href="/zh-cn/" lang="zh-CN" hreflang="zh-CN" aria-current="page">简体中文</a>
+      </div>
+    </nav>
+  </header>
+
+  <main id="main">
+    <section class="hero shell" aria-labelledby="title">
+      <div class="intro">
+        <p class="eyebrow">macOS · restic · 腾讯云 COS</p>
+        <h1 id="title">备份你的<br class="desktop-break"> Codex 会话。</h1>
+        <p class="lead">为本地会话保留加密快照，在浏览器里搜索历史记录，并在需要之前做一次恢复验证。</p>
+        <a class="button" href="#workflow">了解使用流程 <span aria-hidden="true">↓</span></a>
+      </div>
+      <figure class="preview">
+        <img src="/search-demo-zh-cn.png" width="1440" height="868" alt="本地会话搜索示意图，展示关键词、项目和状态筛选，以及三条合成会话。">
+        <figcaption>本地会话搜索示意图，内容为合成会话</figcaption>
+      </figure>
+    </section>
+
+    <section class="workflow" id="workflow" aria-labelledby="workflow-title">
+      <div class="shell">
+        <h2 id="workflow-title">从备份到恢复</h2>
+        <div class="steps">
+          <article>
+            <p class="command"><code>run</code></p>
+            <h3>增量备份</h3>
+            <p>用 restic 将加密增量快照保存到私有 COS 桶。可以手动备份，也可以用 macOS LaunchAgent 定时执行。</p>
+          </article>
+          <article>
+            <p class="command"><code>browse</code></p>
+            <h3>搜索会话</h3>
+            <p>按关键词、项目、日期和状态搜索普通或归档会话，也可以将会话导出为 Markdown。</p>
+          </article>
+          <article>
+            <p class="command"><code>restore</code></p>
+            <h3>校验恢复</h3>
+            <p>将历史快照恢复到空目录，命令行会按快照清单校验恢复文件。</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="release shell" id="release" aria-labelledby="release-title">
+      <div>
+        <h2 id="release-title">发布状态</h2>
+        <p>首个公开版本 <code>v0.1.0</code> 待发布。发布后可在 GitHub 查看源码和下载版本。</p>
+      </div>
+      <div>
+        <h3>运行环境</h3>
+        <p>macOS、支持 SQLite FTS5 的 Python、restic、rclone、zstd 和 GnuPG。云端备份需要私有腾讯云 COS 桶，本地恢复演练使用合成数据。</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="shell footer">
+    <p>Codex 会话备份 · MIT 许可证</p>
+    <p>启用网站统计后，只统计首页访问。备份工具不会向本网站发送会话内容。</p>
+  </footer>
+</body>
+</html>
