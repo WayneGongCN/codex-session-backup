@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Codex Session Backup — Back up and restore Codex chats on macOS</title>
+  <meta name="description" content="Encrypted incremental backups, local search, and verified restore for Codex chats on macOS.">
+  <link rel="canonical" href="https://codex-session-backup.waynegong.com/">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Codex Session Backup">
+  <meta property="og:description" content="Back up, search, and restore your local Codex chats on macOS.">
+  <meta property="og:url" content="https://codex-session-backup.waynegong.com/">
+  <meta property="og:image" content="https://codex-session-backup.waynegong.com/search-demo.png">
+  <meta name="theme-color" content="#f6f4eb">
+  <link rel="stylesheet" href="/site.css">
+  <meta name="msvalidate.01" content="22F810F68D8754848FD08A7BE4E77892">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="top shell">
+    <a class="wordmark" href="/" aria-label="Codex Session Backup home"><span class="mark" aria-hidden="true"></span>Codex Session Backup</a>
+    <nav aria-label="Main navigation">
+      <a href="#workflow">How it works</a>
+      <a href="#release">Release status</a>
+    </nav>
+  </header>
+
+  <main id="main">
+    <section class="hero shell" aria-labelledby="title">
+      <div class="intro">
+        <p class="eyebrow">macOS · restic · Tencent Cloud COS</p>
+        <h1 id="title">Back up your<br class="desktop-break"> Codex chats.</h1>
+        <p class="lead">Keep encrypted snapshots of your local sessions, search them in your browser, and verify a restore before you need it.</p>
+        <a class="button" href="#workflow">See how it works <span aria-hidden="true">↓</span></a>
+      </div>
+      <figure class="preview">
+        <div class="preview-bar"><span aria-hidden="true"></span> Local search</div>
+        <img src="/search-demo.png" width="1120" height="545" alt="Local search showing four synthetic Codex chats with active and archived states, with controls for keyword, project, date, and status.">
+        <figcaption>Search preview with synthetic conversations</figcaption>
+      </figure>
+    </section>
+
+    <section class="workflow" id="workflow" aria-labelledby="workflow-title">
+      <div class="shell">
+        <h2 id="workflow-title">From snapshot to recovery</h2>
+        <div class="steps">
+          <article>
+            <p class="command"><code>run</code></p>
+            <h3>Back up</h3>
+            <p>Save incremental, restic-encrypted snapshots to a private COS bucket. Run on demand or schedule backups with a macOS LaunchAgent.</p>
+          </article>
+          <article>
+            <p class="command"><code>browse</code></p>
+            <h3>Find a chat</h3>
+            <p>Search active and archived conversations by keyword, project, date, or status. Export a conversation as Markdown.</p>
+          </article>
+          <article>
+            <p class="command"><code>restore</code></p>
+            <h3>Restore and verify</h3>
+            <p>Restore an earlier snapshot into an empty directory. The CLI checks file contents against the snapshot manifest.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="release shell" id="release" aria-labelledby="release-title">
+      <div>
+        <h2 id="release-title">Release status</h2>
+        <p>The first public release, <code>v0.1.0</code>, is pending. Source and downloads will be available on GitHub after release.</p>
+      </div>
+      <div>
+        <h3>What you’ll need</h3>
+        <p>macOS, Python with SQLite FTS5, restic, rclone, zstd, and GnuPG. A private Tencent Cloud COS bucket is required for cloud backups. The local recovery drill uses synthetic data.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="shell footer">
+    <p>Codex Session Backup · MIT License</p>
+    <p>When enabled, website analytics measure homepage visits. The backup tool does not send chat contents to this website.</p>
+  </footer>
+</body>
+</html>

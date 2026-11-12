@@ -1,6 +1,6 @@
 # Codex Session Backup 使用指南
 
-先按 [README](../README.md#快速开始) 安装依赖并完成合成数据演练。下文命令从项目目录运行。
+先按 [README](../README.zh-CN.md#快速开始) 安装依赖并完成合成数据演练。下文命令从项目目录运行。
 
 ## 配置 COS 直连
 

@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://codex-session-backup.waynegong.com/sitemap.xml

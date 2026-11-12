@@ -1,14 +1,14 @@
 # Codex Session Backup
 
-Encrypted incremental backup, local search, and verified restore for Codex chats on macOS. Store restic snapshots in a private Tencent Cloud COS bucket and browse active or archived chats from a local search page.
+Back up, search, and restore local Codex chats on macOS. The CLI stores encrypted incremental snapshots in a private Tencent Cloud COS bucket using restic. A local browser interface lets you search active and archived chats.
 
-[使用指南](docs/usage.md) · [下载 v0.1.0](https://github.com/WayneGongCN/codex-session-backup/releases/tag/v0.1.0)
+[简体中文](https://github.com/WayneGongCN/codex-session-backup/blob/main/README.zh-CN.md) · [Project homepage](https://codex-session-backup.waynegong.com/) · [Release v0.1.0](https://github.com/WayneGongCN/codex-session-backup/releases/tag/v0.1.0)
 
-![本地搜索页，显示合成会话的标题、归档状态和筛选条件](docs/search-demo.png)
+![Local search with synthetic chat titles, archive status, and filters](docs/search-demo.png)
 
-## 快速开始
+## Quick start
 
-在 macOS 上用 Homebrew 安装依赖。Python 的 SQLite 需要启用 FTS5 和 trigram 分词。GnuPG 用于生成和解密恢复包。
+Install the dependencies with Homebrew. The SQLite library bundled with Python must support FTS5 with the trigram tokenizer. GnuPG encrypts and decrypts the recovery package.
 
 ```sh
 brew install python restic rclone zstd gnupg
@@ -19,19 +19,19 @@ cd codex-session-backup
 ./codex-backup --help
 ```
 
-也可以从 Release 下载 **Source code (tar.gz)**，解压后在目录中运行同样的命令。脚本和 Python 模块需要放在一起。如果要启用定时备份，请把目录放在稳定的位置。
+You can also download **Source code (tar.gz)** from the release and run the same commands after extracting it. Keep the scripts and Python modules together. Use a stable installation path before enabling scheduled backups.
 
-### 本地演练
+### Run a local recovery drill
 
 ```sh
 python3 -m unittest -v
 ```
 
-测试自动生成合成会话、临时 restic 仓库和口令，演练两次备份、归档检索、历史快照恢复和完整性校验。测试使用临时目录，无需云账号、钥匙串凭据或真实 Codex 会话。
+The test creates synthetic chats, a disposable restic repository, and a temporary password. It runs two backups, searches archived chats, restores an earlier snapshot, and checks repository integrity. It needs no cloud account, Keychain credentials, or real Codex chats.
 
-### 备份到 COS
+### Back up to COS
 
-按[使用指南](docs/usage.md#配置-cos-直连)配置私有桶、写入凭据和 GPG 恢复包。已有仓库运行 `probe`，空前缀首次接入运行 `init`。首次备份后先恢复到空目录，再启用定时任务。
+Follow the [COS setup guide in Simplified Chinese](docs/usage.md#配置-cos-直连) to configure a private bucket, a scoped writer credential, and a GPG recovery package. Run `probe` for an existing repository or `init` for a new repository under an empty prefix. After your first backup, restore to an empty directory before enabling the LaunchAgent.
 
 ```sh
 ./codex-backup run
@@ -40,6 +40,6 @@ python3 -m unittest -v
 ./codex-backup restore --to /path/to/empty-restore
 ```
 
-工具备份本地会话、归档和受支持的附件目录。Git 工作区、外部文件与账号登录需要各自的恢复方式。详见[备份范围和兼容性](docs/usage.md#备份范围和兼容性)。
+The tool covers local chats, archives, and supported attachment directories. Back up Git workspaces and external files separately. Account sign-in uses Codex's normal sign-in flow. See the [full usage guide](docs/usage.md) for recovery, scheduling, retention, and compatibility.
 
 [MIT License](LICENSE)

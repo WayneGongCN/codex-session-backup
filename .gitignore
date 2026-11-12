@@ -11,3 +11,6 @@ status.json
 *.log
 bundle/
 restic-cache/
+/site/dist/
+/site/node_modules/
+/site/.cloudflare/
