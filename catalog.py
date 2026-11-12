@@ -1,5 +1,4 @@
 """Build and serve an immutable search catalog for one backup snapshot."""
-import html
 import json
 import re
 import secrets
@@ -9,10 +8,18 @@ import subprocess
 import webbrowser
 from contextlib import closing
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import PurePosixPath
-from urllib.parse import parse_qs, quote, urlencode, urlsplit
+from pathlib import Path, PurePosixPath
+from urllib.parse import parse_qs, quote, urlsplit
+
+import search_ui
 
 ATTACHMENT_TREES = ('attachments', 'artifacts', 'generated_images', 'visualizations')
+ASSET_DIR = Path(__file__).resolve().with_name('search_assets')
+ASSETS = {
+    'search.css': 'text/css; charset=utf-8',
+    'markdown-it.min.js': 'text/javascript; charset=utf-8',
+    'chat.js': 'text/javascript; charset=utf-8',
+}
 
 
 class AttachmentError(Exception):
@@ -126,18 +133,6 @@ def build(bundle, previous, threads, inventory, project_names=None):
     return target
 
 
-STYLE = """
-:root{color-scheme:light dark;font-family:system-ui,sans-serif}
-body{max-width:64rem;margin:3rem auto;padding:0 1.25rem;line-height:1.55}
-h1{font-size:1.65rem}form{display:flex;gap:.65rem;flex-wrap:wrap}
-input,select,button{font:inherit;padding:.35rem .55rem}
-input[name=q]{flex:1;min-width:12rem}article{padding:.85rem 0;border-bottom:1px solid #8885}
-small{opacity:.75}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit}
-.attachments li{margin:.35rem 0;overflow-wrap:anywhere}
-.attachments a{margin-inline-start:.6em}
-"""
-
-
 def results(db, filters):
     q, project, archived, date = (filters.get(key, [''])[0] for key in ('q', 'project', 'archived', 'date'))
     where, args = [], []
@@ -195,7 +190,8 @@ def attachment_files(manifest, chat, messages):
 def serve(database, snapshot, open_browser=True, *, load_manifest, download_file):
     token = secrets.token_urlsafe(24)
     base = '/' + token
-    esc = html.escape
+    assets = {f'{base}/assets/{name}': (ASSET_DIR.joinpath(name).read_bytes(), kind)
+              for name, kind in ASSETS.items()}
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
@@ -208,7 +204,8 @@ def serve(database, snapshot, open_browser=True, *, load_manifest, download_file
             self.send_header('Cache-Control', 'no-store')
             self.send_header('Referrer-Policy', 'no-referrer')
             self.send_header('X-Content-Type-Options', 'nosniff')
-            self.send_header('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'")
+            self.send_header('Content-Security-Policy', "default-src 'none'; style-src 'self'; "
+                             "script-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
             if disposition:
                 self.send_header('Content-Disposition', disposition)
             self.end_headers()
@@ -223,16 +220,34 @@ def serve(database, snapshot, open_browser=True, *, load_manifest, download_file
                 self.send_error(403)
                 return
             url = urlsplit(self.path)
+            if url.path in assets:
+                data, kind = assets[url.path]
+                self.send_headers(len(data), kind, None)
+                self.wfile.write(data)
+                return
             if url.path not in (base, base + '/chat', base + '/export', base + '/download'):
                 self.send_error(404)
                 return
             filters = parse_qs(url.query)
+            preferred = self.headers.get('Accept-Language', '').split(',', 1)[0].split(';', 1)[0]
+            lang = 'en' if preferred.strip().lower().split('-')[0] == 'en' else 'zh-CN'
+            copy = search_ui.COPY[lang]
+            title = None
             with closing(readonly(database)) as db:
                 if url.path == base:
-                    body = self.search(db, filters)
+                    values, hits, page, more = results(db, filters)
+                    q = values[0]
+                    cards = []
+                    for hit in hits:
+                        match = db.execute("""SELECT body,instr(lower(body),lower(?)) FROM messages
+                            WHERE chat=? AND instr(lower(body),lower(?))>0 ORDER BY id LIMIT 1""",
+                            (q, hit[0], q)).fetchone() if q else None
+                        cards.append((*hit, match))
+                    body = search_ui.search_page(base, copy, filters, values, cards, page, more)
                 else:
                     chat = filters.get('id', [''])[0]
-                    row = db.execute('SELECT title FROM chats WHERE id=?', (chat,)).fetchone()
+                    row = db.execute("""SELECT title,project,date(updated,'unixepoch','+8 hours'),archived
+                        FROM chats WHERE id=?""", (chat,)).fetchone()
                     if not row:
                         self.send_error(404)
                         return
@@ -245,26 +260,13 @@ def serve(database, snapshot, open_browser=True, *, load_manifest, download_file
                     if url.path.endswith('/download'):
                         self.download(chat, messages, filters.get('path', [''])[0])
                         return
-                    body = f'<a href="{base}">返回搜索</a> · <a href="{base}/export?{urlencode({"id": chat})}">导出 Markdown</a>'
-                    body += f'<h1>{esc(row[0])}</h1>' + self.attachments(chat, messages) + ''.join(
-                        f'<article><b>{esc(role)}</b><pre>{esc(text)}</pre></article>' for role, text in messages)
-            self.send(f'<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>Codex 会话备份</title><style>{STYLE}</style><body>{body}</body></html>')
-
-        def attachments(self, chat, messages):
-            heading = '<section class="attachments"><h2>附件</h2>'
-            try:
-                files = attachment_files(load_manifest(), chat, messages)
-            except AttachmentError:
-                return heading + '<p>暂时无法读取快照附件。请检查备份库连接后刷新。</p></section>'
-            if not files:
-                return heading + '<p>此快照没有与该会话关联的附件。</p></section>'
-            items = []
-            for path in sorted(files, key=lambda path: (PurePosixPath(path).name.casefold(), path)):
-                name = esc(PurePosixPath(path).name)
-                query = esc(urlencode({'id': chat, 'path': path}))
-                items.append(f'<li title="{esc(path)}">{name} '
-                             f'<a href="{base}/download?{query}" download aria-label="下载 {name}">下载</a></li>')
-            return heading + '<ul>' + ''.join(items) + '</ul></section>'
+                    try:
+                        files = attachment_files(load_manifest(), chat, messages)
+                    except AttachmentError:
+                        files = None
+                    title = row[0]
+                    body = search_ui.chat_page(base, copy, filters, chat, row, messages, files)
+            self.send(search_ui.document(base, snapshot, lang, body, chat_title=title))
 
         def download(self, chat, messages, path):
             try:
@@ -282,35 +284,6 @@ def serve(database, snapshot, open_browser=True, *, load_manifest, download_file
                 self.send_error(503, 'Snapshot attachment unavailable')
             except ConnectionError:
                 pass
-
-        def search(self, db, filters):
-            (q, project, archived, date), hits, page, more = results(db, filters)
-            options = ''.join(f'<option value="{v}" {"selected" if v == archived else ""}>{label}</option>'
-                              for v, label in (('', '全部状态'), ('0', '普通'), ('1', '已归档')))
-            body = f"""<h1>Codex 会话备份</h1><p><small>快照 {esc(snapshot)}</small></p>
-                <form action="{base}"><input name="q" aria-label="关键词" placeholder="标题、工单号或正文" value="{esc(q)}">
-                <input name="project" aria-label="项目" placeholder="项目" value="{esc(project)}">
-                <input name="date" aria-label="更新日期" type="date" value="{esc(date)}">
-                <select name="archived" aria-label="归档状态">{options}</select><button>搜索</button></form>"""
-            for chat, title, cwd, day, archived_flag in hits:
-                snippet = ''
-                if q:
-                    message = db.execute("""SELECT body,instr(lower(body),lower(?)) FROM messages
-                        WHERE chat=? AND instr(lower(body),lower(?))>0 ORDER BY id LIMIT 1""", (q, chat, q)).fetchone()
-                    if message:
-                        text, pos = message
-                        snippet = f'<div>{esc(text[max(0,pos-51):pos+110])}</div>'
-                body += (f'<article><a href="{base}/chat?{urlencode({"id": chat})}">{esc(title)}</a>'
-                         f'<br><small>{esc(day or "")} · {"已归档" if archived_flag else "普通"} · {esc(cwd or "")}</small>'
-                         f'{snippet}</article>')
-            if not hits:
-                body += '<p>没有匹配的会话。</p>'
-            for n, label in ((page - 1, '上一页'), (page + 1, '下一页')):
-                if n < 0 or (n > page and not more):
-                    continue
-                query = urlencode({**{k: v[0] for k, v in filters.items()}, 'page': n})
-                body += f' <a href="{base}?{esc(query)}">{label}</a>'
-            return body
 
     with ThreadingHTTPServer(('127.0.0.1', 0), Handler) as server:
         url = f'http://127.0.0.1:{server.server_port}{base}'

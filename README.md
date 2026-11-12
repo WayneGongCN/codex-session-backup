@@ -4,7 +4,7 @@ Back up, search, and restore local Codex chats on macOS. The CLI stores encrypte
 
 [简体中文](https://github.com/WayneGongCN/codex-session-backup/blob/main/README.zh-CN.md) · [Project homepage](https://codex-session-backup.waynegong.com/) · [Release v0.1.1](https://github.com/WayneGongCN/codex-session-backup/releases/tag/v0.1.1)
 
-![Illustration of local search with synthetic chats, archive status, and filters](docs/search-demo-en.png)
+![Local search with synthetic chats, keyword highlights, filters, and archive status](docs/search-demo-en.png)
 
 ## Quick start
 
@@ -19,7 +19,7 @@ cd codex-session-backup
 ./codex-backup --help
 ```
 
-You can also download **Source code (tar.gz)** from the release and run the same commands after extracting it. Keep the scripts and Python modules together. Use a stable installation path before enabling scheduled backups.
+You can also download **Source code (tar.gz)** from the release and run the same commands after extracting it. Keep the scripts, Python modules, and `search_assets/` together. Use a stable installation path before enabling scheduled backups.
 
 ### Run a local recovery drill
 
@@ -39,6 +39,10 @@ Follow the [COS setup guide in Simplified Chinese](docs/usage.md#配置-cos-直�
 ./codex-backup browse
 ./codex-backup restore --to /path/to/empty-restore
 ```
+
+The session viewer renders Markdown by default. Use the Markdown switch to see the source, the contents panel to jump to messages and headings, and the attachments panel to download files from the snapshot.
+
+![Session viewer with rendered Markdown, downloadable attachments, and a linked contents panel](docs/session-demo-en.png)
 
 The tool covers local chats, archives, and supported attachment directories. Back up Git workspaces and external files separately. Account sign-in uses Codex's normal sign-in flow. See the [full usage guide](docs/usage.md) for recovery, scheduling, retention, and compatibility.
 

@@ -4,7 +4,7 @@
 
 [English](https://github.com/WayneGongCN/codex-session-backup/blob/main/README.md) · [项目首页](https://codex-session-backup.waynegong.com/zh-cn/) · [使用指南](docs/usage.md) · [下载 v0.1.1](https://github.com/WayneGongCN/codex-session-backup/releases/tag/v0.1.1)
 
-![本地搜索示意图，使用合成会话展示归档状态和筛选条件](docs/search-demo-zh-cn.png)
+![本地搜索页截图，使用合成会话展示关键词高亮、筛选条件和归档状态](docs/search-demo-zh-cn.png)
 
 ## 快速开始
 
@@ -19,7 +19,7 @@ cd codex-session-backup
 ./codex-backup --help
 ```
 
-也可以从 Release 下载 **Source code (tar.gz)**，解压后在目录中运行同样的命令。脚本和 Python 模块需要放在一起。如果要启用定时备份，请把目录放在稳定的位置。
+也可以从 Release 下载 **Source code (tar.gz)**，解压后在目录中运行同样的命令。请将脚本、Python 模块和 `search_assets/` 放在一起。如果要启用定时备份，请把目录放在稳定的位置。
 
 ### 本地演练
 
@@ -39,6 +39,10 @@ python3 -m unittest -v
 ./codex-backup browse
 ./codex-backup restore --to /path/to/empty-restore
 ```
+
+会话详情默认渲染 Markdown，可通过开关切换到原文。右侧目录可跳转到消息和标题，左侧可下载快照中的附件。
+
+![会话详情页截图，展示 Markdown 正文、附件下载和会话目录](docs/session-demo-zh-cn.png)
 
 工具备份本地会话、归档和受支持的附件目录。Git 工作区、外部文件与账号登录需要各自的恢复方式。详见[备份范围和兼容性](docs/usage.md#备份范围和兼容性)。
 
