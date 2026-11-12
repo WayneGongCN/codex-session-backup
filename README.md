@@ -2,7 +2,7 @@
 
 Back up, search, and restore local Codex chats on macOS. The CLI stores encrypted incremental snapshots in a private Tencent Cloud COS bucket using restic. A local browser interface lets you search active and archived chats.
 
-[简体中文](https://github.com/WayneGongCN/codex-session-backup/blob/main/README.zh-CN.md) · [Project homepage](https://codex-session-backup.waynegong.com/) · [Release v0.1.0](https://github.com/WayneGongCN/codex-session-backup/releases/tag/v0.1.0)
+[简体中文](https://github.com/WayneGongCN/codex-session-backup/blob/main/README.zh-CN.md) · [Project homepage](https://codex-session-backup.waynegong.com/) · [Release v0.1.1](https://github.com/WayneGongCN/codex-session-backup/releases/tag/v0.1.1)
 
 ![Illustration of local search with synthetic chats, archive status, and filters](docs/search-demo-en.png)
 
@@ -14,7 +14,7 @@ Install the dependencies with Homebrew. The SQLite library bundled with Python m
 brew install python restic rclone zstd gnupg
 python3 -c 'import sqlite3; sqlite3.connect(":memory:").execute("CREATE VIRTUAL TABLE fts_check USING fts5(text, tokenize=trigram)")'
 
-git clone --depth 1 --branch v0.1.0 https://github.com/WayneGongCN/codex-session-backup.git
+git clone --depth 1 --branch v0.1.1 https://github.com/WayneGongCN/codex-session-backup.git
 cd codex-session-backup
 ./codex-backup --help
 ```

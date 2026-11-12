@@ -15,7 +15,8 @@ import subprocess
 import sys
 import tempfile
 import time
-from contextlib import closing, contextmanager
+from contextlib import ExitStack, closing, contextmanager
+from functools import lru_cache
 from pathlib import Path
 
 import catalog
@@ -25,7 +26,7 @@ HOME = Path.home()
 SOURCE = HOME / '.codex'
 KEYCHAIN = b'com.waynegong.codex-session-backup'
 DATABASES = ('state_5.sqlite', 'thread_history_1.sqlite', 'goals_1.sqlite')
-TREES = ('sessions', 'archived_sessions', 'attachments', 'artifacts', 'generated_images', 'visualizations')
+TREES = ('sessions', 'archived_sessions', *catalog.ATTACHMENT_TREES)
 TAG = 'codex-sessions-v1'
 RETENTION = ('--tag', TAG, '--keep-last', '2', '--keep-daily', '30',
              '--keep-weekly', '12', '--keep-monthly', '12')
@@ -80,11 +81,17 @@ def read_json(path, default=None):
 
 
 def digest(path):
-    h = hashlib.sha256()
     with path.open('rb') as stream:
-        for block in iter(lambda: stream.read(1024 * 1024), b''):
-            h.update(block)
-    return {'size': path.stat().st_size, 'sha256': h.hexdigest()}
+        return stream_digest(stream)
+
+
+def stream_digest(stream):
+    h = hashlib.sha256()
+    size = 0
+    for block in iter(lambda: stream.read(1024 * 1024), b''):
+        h.update(block)
+        size += len(block)
+    return {'size': size, 'sha256': h.hexdigest()}
 
 
 def clean_env():
@@ -329,6 +336,55 @@ def snapshot_id(repo, requested, status):
     raise BackupError('No complete snapshot found')
 
 
+def browse(args, status):
+    @lru_cache(maxsize=1)
+    def repository():
+        return Repository(args)
+
+    @lru_cache(maxsize=1)
+    def manifest():
+        return remote_manifest(repository(), selected)
+
+    def load_manifest():
+        try:
+            value = manifest()
+            if not Path(value['source']).is_absolute():
+                raise BackupError('Invalid source in snapshot manifest')
+            return value
+        except (BackupError, OSError, ValueError, KeyError, TypeError) as error:
+            raise catalog.AttachmentError from error
+
+    @contextmanager
+    def download_file(path, expected):
+        with ExitStack() as stack:
+            try:
+                output = stack.enter_context(tempfile.TemporaryFile(dir=args.data_dir))
+                repository().dump(selected, path, output)
+                output.seek(0)
+                if stream_digest(output) != expected:
+                    raise BackupError('Attachment failed checksum')
+                output.seek(0)
+            except (BackupError, OSError, ValueError) as error:
+                raise catalog.AttachmentError from error
+            yield output
+
+    with tempfile.TemporaryDirectory(prefix='browse-', dir=args.data_dir) as directory:
+        index = Path(directory) / 'catalog.sqlite'
+        selected = status.get('snapshot')
+        cached = args.data_dir / f'catalog-{selected}.sqlite'
+        if not args.snapshot and selected and cached.is_file():
+            shutil.copyfile(cached, index)
+        else:
+            selected = snapshot_id(repository(), args.snapshot, status)
+            expected = manifest()['files']['catalog.sqlite']
+            with index.open('xb') as out:
+                repository().dump(selected, 'catalog.sqlite', out)
+            if digest(index) != expected:
+                raise BackupError('Search index failed checksum')
+        catalog.serve(index, selected, not args.no_open,
+                      load_manifest=load_manifest, download_file=download_file)
+
+
 def run_backup(args, repo, status):
     bundle = args.data_dir / 'bundle'
     previous = args.data_dir / ('catalog-' + status.get('snapshot', 'none') + '.sqlite')
@@ -557,32 +613,19 @@ def main():
         with locked(args.data_dir):
             schedule(args, read_json(status_file, {}))
         return
-    previous = args.data_dir / ('catalog-' + status.get('snapshot', 'none') + '.sqlite')
-    if args.command == 'browse' and not args.snapshot and status.get('snapshot') and previous.is_file():
-        with tempfile.TemporaryDirectory(prefix='browse-', dir=args.data_dir) as directory:
-            current = Path(directory) / 'catalog.sqlite'
-            shutil.copyfile(previous, current)
-            catalog.serve(current, status['snapshot'], not args.no_open)
+    if args.command == 'browse':
+        browse(args, status)
         return
 
     repo = Repository(args, maintenance=args.command == 'maintain' and args.apply)
-    if args.command in ('browse', 'restore', 'dump'):
+    if args.command in ('restore', 'dump'):
         selected = snapshot_id(repo, args.snapshot, status)
         if args.command == 'restore':
             restore(repo, selected, args.to.absolute(), args.codex_root.resolve() if args.codex_root else None)
-        elif args.command == 'dump':
+        else:
             if args.relative not in remote_manifest(repo, selected)['files']:
                 raise BackupError('File is absent from snapshot manifest')
             repo.dump(selected, args.relative, sys.stdout.buffer)
-        else:
-            expected = remote_manifest(repo, selected)['files']['catalog.sqlite']
-            with tempfile.TemporaryDirectory(prefix='browse-', dir=args.data_dir) as directory:
-                index = Path(directory) / 'catalog.sqlite'
-                with index.open('xb') as out:
-                    repo.dump(selected, 'catalog.sqlite', out)
-                if digest(index) != expected:
-                    raise BackupError('Search index failed checksum')
-                catalog.serve(index, selected, not args.no_open)
         return
     with locked(args.data_dir):
         if args.command in ('init', 'probe'):

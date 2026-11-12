@@ -1,6 +1,7 @@
 """Build and serve an immutable search catalog for one backup snapshot."""
 import html
 import json
+import re
 import secrets
 import shutil
 import sqlite3
@@ -8,7 +9,14 @@ import subprocess
 import webbrowser
 from contextlib import closing
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlencode, urlsplit
+from pathlib import PurePosixPath
+from urllib.parse import parse_qs, quote, urlencode, urlsplit
+
+ATTACHMENT_TREES = ('attachments', 'artifacts', 'generated_images', 'visualizations')
+
+
+class AttachmentError(Exception):
+    pass
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS chats(
@@ -125,6 +133,8 @@ h1{font-size:1.65rem}form{display:flex;gap:.65rem;flex-wrap:wrap}
 input,select,button{font:inherit;padding:.35rem .55rem}
 input[name=q]{flex:1;min-width:12rem}article{padding:.85rem 0;border-bottom:1px solid #8885}
 small{opacity:.75}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit}
+.attachments li{margin:.35rem 0;overflow-wrap:anywhere}
+.attachments a{margin-inline-start:.6em}
 """
 
 
@@ -156,7 +166,33 @@ def results(db, filters):
     return (q, project, archived, date), hits[:50], offset // 50, len(hits) == 51
 
 
-def serve(database, snapshot, open_browser=True):
+def attachment_files(manifest, chat, messages):
+    source = PurePosixPath(manifest['source'])
+    conversation = '\n'.join(body for _, body in messages)
+    files = {}
+    for path, entry in manifest['files'].items():
+        parts = PurePosixPath(path).parts
+        if len(parts) < 3 or parts[0] != 'codex' or parts[1] not in ATTACHMENT_TREES:
+            continue
+        # Visualizations are grouped by date before the chat ID.
+        owner = 5 if parts[1] == 'visualizations' else 2
+        if len(parts) > owner + 1 and parts[owner] == chat:
+            files[path] = entry
+            continue
+        original = str(source.joinpath(*parts[1:]))
+        encoded = quote(original)
+        variants = {value for value in (original, encoded, 'file://' + encoded) if value in conversation}
+        if not variants:
+            continue
+        pattern = '|'.join(map(re.escape, variants))
+        # Match complete paths in text, Markdown links, and file URLs.
+        if re.search(r'''(?<![\w./%~+-])(?:''' + pattern + r''')(?=$|[\s)\]}>`'"，。；：]|:\d)''',
+                     conversation):
+            files[path] = entry
+    return files
+
+
+def serve(database, snapshot, open_browser=True, *, load_manifest, download_file):
     token = secrets.token_urlsafe(24)
     base = '/' + token
     esc = html.escape
@@ -165,11 +201,10 @@ def serve(database, snapshot, open_browser=True):
         def log_message(self, *args):
             pass
 
-        def send(self, content, kind='text/html; charset=utf-8', disposition=None):
-            data = content.encode()
+        def send_headers(self, length, kind, disposition):
             self.send_response(200)
             self.send_header('Content-Type', kind)
-            self.send_header('Content-Length', str(len(data)))
+            self.send_header('Content-Length', str(length))
             self.send_header('Cache-Control', 'no-store')
             self.send_header('Referrer-Policy', 'no-referrer')
             self.send_header('X-Content-Type-Options', 'nosniff')
@@ -177,6 +212,10 @@ def serve(database, snapshot, open_browser=True):
             if disposition:
                 self.send_header('Content-Disposition', disposition)
             self.end_headers()
+
+        def send(self, content, kind='text/html; charset=utf-8', disposition=None):
+            data = content.encode()
+            self.send_headers(len(data), kind, disposition)
             self.wfile.write(data)
 
         def do_GET(self):
@@ -184,7 +223,7 @@ def serve(database, snapshot, open_browser=True):
                 self.send_error(403)
                 return
             url = urlsplit(self.path)
-            if url.path not in (base, base + '/chat', base + '/export'):
+            if url.path not in (base, base + '/chat', base + '/export', base + '/download'):
                 self.send_error(404)
                 return
             filters = parse_qs(url.query)
@@ -203,10 +242,46 @@ def serve(database, snapshot, open_browser=True):
                             '## ' + role + '\n\n' + body for role, body in messages),
                             'text/markdown; charset=utf-8', 'attachment; filename="codex-chat.md"')
                         return
+                    if url.path.endswith('/download'):
+                        self.download(chat, messages, filters.get('path', [''])[0])
+                        return
                     body = f'<a href="{base}">返回搜索</a> · <a href="{base}/export?{urlencode({"id": chat})}">导出 Markdown</a>'
-                    body += f'<h1>{esc(row[0])}</h1>' + ''.join(
+                    body += f'<h1>{esc(row[0])}</h1>' + self.attachments(chat, messages) + ''.join(
                         f'<article><b>{esc(role)}</b><pre>{esc(text)}</pre></article>' for role, text in messages)
             self.send(f'<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>Codex 会话备份</title><style>{STYLE}</style><body>{body}</body></html>')
+
+        def attachments(self, chat, messages):
+            heading = '<section class="attachments"><h2>附件</h2>'
+            try:
+                files = attachment_files(load_manifest(), chat, messages)
+            except AttachmentError:
+                return heading + '<p>暂时无法读取快照附件。请检查备份库连接后刷新。</p></section>'
+            if not files:
+                return heading + '<p>此快照没有与该会话关联的附件。</p></section>'
+            items = []
+            for path in sorted(files, key=lambda path: (PurePosixPath(path).name.casefold(), path)):
+                name = esc(PurePosixPath(path).name)
+                query = esc(urlencode({'id': chat, 'path': path}))
+                items.append(f'<li title="{esc(path)}">{name} '
+                             f'<a href="{base}/download?{query}" download aria-label="下载 {name}">下载</a></li>')
+            return heading + '<ul>' + ''.join(items) + '</ul></section>'
+
+        def download(self, chat, messages, path):
+            try:
+                entry = attachment_files(load_manifest(), chat, messages).get(path)
+                if entry is None:
+                    self.send_error(404)
+                    return
+                name = PurePosixPath(path).name
+                fallback = re.sub(r'[^A-Za-z0-9._ -]', '_', name)
+                disposition = f"""attachment; filename="{fallback}"; filename*=UTF-8''{quote(name, safe='')}"""
+                with download_file(path, entry) as content:
+                    self.send_headers(entry['size'], 'application/octet-stream', disposition)
+                    shutil.copyfileobj(content, self.wfile)
+            except AttachmentError:
+                self.send_error(503, 'Snapshot attachment unavailable')
+            except ConnectionError:
+                pass
 
         def search(self, db, filters):
             (q, project, archived, date), hits, page, more = results(db, filters)
