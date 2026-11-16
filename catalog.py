@@ -1,4 +1,4 @@
-"""Build and serve an immutable search catalog for one backup snapshot."""
+"""Build and serve immutable search catalogs for backup snapshots."""
 import json
 import re
 import secrets
@@ -14,6 +14,7 @@ from urllib.parse import parse_qs, quote, urlsplit
 import search_ui
 
 ATTACHMENT_TREES = ('attachments', 'artifacts', 'generated_images', 'visualizations')
+SNAPSHOT_ID = re.compile(r'[a-f0-9]{8,64}')
 ASSET_DIR = Path(__file__).resolve().with_name('search_assets')
 ASSETS = {
     'search.css': 'text/css; charset=utf-8',
@@ -24,6 +25,11 @@ ASSETS = {
 
 class AttachmentError(Exception):
     pass
+
+
+class SnapshotError(Exception):
+    pass
+
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS chats(
@@ -187,7 +193,7 @@ def attachment_files(manifest, chat, messages):
     return files
 
 
-def serve(database, snapshot, open_browser=True, *, load_manifest, download_file):
+def serve(default_snapshot, open_browser=True, *, list_snapshots, open_index, load_manifest, download_file):
     token = secrets.token_urlsafe(24)
     base = '/' + token
     assets = {f'{base}/assets/{name}': (ASSET_DIR.joinpath(name).read_bytes(), kind)
@@ -197,8 +203,8 @@ def serve(database, snapshot, open_browser=True, *, load_manifest, download_file
         def log_message(self, *args):
             pass
 
-        def send_headers(self, length, kind, disposition):
-            self.send_response(200)
+        def send_headers(self, length, kind, disposition, *, status=200):
+            self.send_response(status)
             self.send_header('Content-Type', kind)
             self.send_header('Content-Length', str(length))
             self.send_header('Cache-Control', 'no-store')
@@ -210,9 +216,9 @@ def serve(database, snapshot, open_browser=True, *, load_manifest, download_file
                 self.send_header('Content-Disposition', disposition)
             self.end_headers()
 
-        def send(self, content, kind='text/html; charset=utf-8', disposition=None):
+        def send(self, content, kind='text/html; charset=utf-8', disposition=None, *, status=200):
             data = content.encode()
-            self.send_headers(len(data), kind, disposition)
+            self.send_headers(len(data), kind, disposition, status=status)
             self.wfile.write(data)
 
         def do_GET(self):
@@ -225,13 +231,31 @@ def serve(database, snapshot, open_browser=True, *, load_manifest, download_file
                 self.send_headers(len(data), kind, None)
                 self.wfile.write(data)
                 return
-            if url.path not in (base, base + '/chat', base + '/export', base + '/download'):
+            if url.path not in (base, base + '/snapshots', base + '/chat', base + '/export', base + '/download'):
                 self.send_error(404)
                 return
             filters = parse_qs(url.query)
+            snapshot = filters.get('snapshot', [default_snapshot])[0]
+            if not SNAPSHOT_ID.fullmatch(snapshot):
+                self.send_error(400, 'Invalid snapshot ID')
+                return
+            filters['snapshot'] = [snapshot]
             preferred = self.headers.get('Accept-Language', '').split(',', 1)[0].split(';', 1)[0]
             lang = 'en' if preferred.strip().lower().split('-')[0] == 'en' else 'zh-CN'
             copy = search_ui.COPY[lang]
+            if url.path.endswith('/snapshots'):
+                try:
+                    snapshots = list_snapshots()
+                except SnapshotError:
+                    snapshots = None
+                body = search_ui.snapshots_page(base, copy, filters, snapshots)
+                self.send(search_ui.document(base, filters, lang, body), status=503 if snapshots is None else 200)
+                return
+            try:
+                database = open_index(snapshot)
+            except SnapshotError:
+                self.send_error(503, 'Snapshot search index unavailable')
+                return
             title = None
             with closing(readonly(database)) as db:
                 if url.path == base:
@@ -258,26 +282,26 @@ def serve(database, snapshot, open_browser=True, *, load_manifest, download_file
                             'text/markdown; charset=utf-8', 'attachment; filename="codex-chat.md"')
                         return
                     if url.path.endswith('/download'):
-                        self.download(chat, messages, filters.get('path', [''])[0])
+                        self.download(snapshot, chat, messages, filters.get('path', [''])[0])
                         return
                     try:
-                        files = attachment_files(load_manifest(), chat, messages)
+                        files = attachment_files(load_manifest(snapshot), chat, messages)
                     except AttachmentError:
                         files = None
                     title = row[0]
                     body = search_ui.chat_page(base, copy, filters, chat, row, messages, files)
-            self.send(search_ui.document(base, snapshot, lang, body, chat_title=title))
+            self.send(search_ui.document(base, filters, lang, body, chat_title=title))
 
-        def download(self, chat, messages, path):
+        def download(self, snapshot, chat, messages, path):
             try:
-                entry = attachment_files(load_manifest(), chat, messages).get(path)
+                entry = attachment_files(load_manifest(snapshot), chat, messages).get(path)
                 if entry is None:
                     self.send_error(404)
                     return
                 name = PurePosixPath(path).name
                 fallback = re.sub(r'[^A-Za-z0-9._ -]', '_', name)
                 disposition = f"""attachment; filename="{fallback}"; filename*=UTF-8''{quote(name, safe='')}"""
-                with download_file(path, entry) as content:
+                with download_file(snapshot, path, entry) as content:
                     self.send_headers(entry['size'], 'application/octet-stream', disposition)
                     shutil.copyfileobj(content, self.wfile)
             except AttachmentError:

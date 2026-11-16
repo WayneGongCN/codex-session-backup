@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Encrypted, incremental backup of the local Codex chat store."""
+"""Encrypted, incremental backup of Codex chats and documents."""
 import argparse
 import ctypes
 import fcntl
@@ -16,11 +16,14 @@ import sys
 import tempfile
 import time
 from contextlib import ExitStack, closing, contextmanager
+from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
+from threading import Lock
 
 import catalog
-from configuration import CosTarget, DATA
+import documents
+from configuration import CosTarget, DATA, documents_path
 
 HOME = Path.home()
 SOURCE = HOME / '.codex'
@@ -28,11 +31,11 @@ KEYCHAIN = b'com.waynegong.codex-session-backup'
 DATABASES = ('state_5.sqlite', 'thread_history_1.sqlite', 'goals_1.sqlite')
 TREES = ('sessions', 'archived_sessions', *catalog.ATTACHMENT_TREES)
 TAG = 'codex-sessions-v1'
+DOCUMENTS_TAG = 'codex-documents-v1'
 RETENTION = ('--tag', TAG, '--keep-last', '2', '--keep-daily', '30',
              '--keep-weekly', '12', '--keep-monthly', '12')
 DAY = 86400
 LABEL = 'com.waynegong.codex-session-backup'
-ID = re.compile(r'[a-f0-9]{8,64}')
 
 
 class BackupError(Exception):
@@ -107,13 +110,16 @@ class Repository:
         self.env = clean_env()
         self.env['RESTIC_CACHE_DIR'] = str(self.data / 'restic-cache')
         self.host = 'codex-mac'
+        connection = self.data / 'connection.json'
         if self.local:
             self.url = str(self.local.resolve())
+            self.documents_source = documents_path(read_json(connection, {}))
             self.env['RESTIC_PASSWORD'] = os.environ.get('CODEX_BACKUP_TEST_PASSWORD', '')
             if not self.env['RESTIC_PASSWORD']:
                 raise BackupError('Set CODEX_BACKUP_TEST_PASSWORD for the local repository')
             return
-        self.target = CosTarget.load(self.data / 'connection.json')
+        self.target = CosTarget.load(connection)
+        self.documents_source = self.target.documents_source
         self.url = self.target.repository
         self.host = self.target.backup_host
         self.env['RESTIC_PASSWORD'] = keychain('repository-password').decode()
@@ -171,8 +177,30 @@ def snapshot_db(source, target):
         if time.monotonic() > deadline:
             raise BackupError(f'SQLite backup timed out: {source.name}')
 
-    with closing(catalog.readonly(source)) as db, closing(sqlite3.connect(target)) as clone:
-        db.backup(clone, pages=256, progress=progress, sleep=0.05)
+    try:
+        with closing(catalog.readonly(source)) as db, closing(sqlite3.connect(target)) as clone:
+            db.backup(clone, pages=256, progress=progress, sleep=0.05)
+    except sqlite3.OperationalError as error:
+        if str(error) != 'unable to open database file':
+            raise
+        # An idle WAL database can lack the sidecars needed by a read-only connection.
+        # Copy only a stable main file with no pending WAL, then open the copy locally.
+        def file_version():
+            info = source.stat()
+            return info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns
+
+        wal = source.with_name(source.name + '-wal')
+        before = file_version()
+        with source.open('rb') as stream:
+            header = stream.read(20)
+        if header[:16] != b'SQLite format 3\0' or header[18:20] != b'\x02\x02' or wal.is_symlink() or wal.exists():
+            raise
+        target.unlink(missing_ok=True)
+        copy_regular(source, target)
+        if wal.is_symlink() or wal.exists() or file_version() != before:
+            raise BackupError(f'SQLite database changed during capture: {source.name}') from error
+
+    with closing(sqlite3.connect(target)) as clone:
         clone.execute('PRAGMA journal_mode=DELETE')
         if source.name == 'state_5.sqlite':
             clone.execute('PRAGMA secure_delete=ON')
@@ -263,7 +291,7 @@ def capture(source, bundle, previous):
 def remote_manifest(repo, snapshot):
     raw = repo.dump(snapshot, 'manifest.json')
     manifest = json.loads(raw)
-    if manifest.get('version') != 1 or 'catalog.sqlite' not in manifest.get('files', {}):
+    if manifest.get('version') not in (1, 2) or 'catalog.sqlite' not in manifest.get('files', {}):
         raise BackupError('Snapshot has no supported manifest')
     for name, entry in manifest['files'].items():
         path = Path(name)
@@ -271,33 +299,57 @@ def remote_manifest(repo, snapshot):
             raise BackupError('Invalid path in snapshot manifest')
         if not re.fullmatch('[a-f0-9]{64}', entry['sha256']) or entry['size'] < 0:
             raise BackupError('Invalid file digest in snapshot manifest')
+    if manifest['version'] == 2:
+        tree = manifest.get('documents')
+        if (not isinstance(tree, dict)
+                or any(type(tree.get(key)) is not int or tree[key] < 0 for key in ('files', 'bytes'))
+                or not re.fullmatch('[a-f0-9]{64}', tree.get('inventory_sha256', ''))):
+            raise BackupError('Invalid documents inventory in snapshot manifest')
+        documents.absolute_tree(tree.get('path'))
     return manifest
 
 
 def remote_inventory(repo, snapshot, manifest):
     files = {}
-    for line in repo.restic('ls', '--json', snapshot).splitlines():
+    for line in repo.restic('ls', '--json', '--recursive', snapshot, '/bundle').splitlines():
         node = json.loads(line)
         if node.get('type') == 'file' and node.get('path', '').startswith('/bundle/'):
             files[node['path'][len('/bundle/'):]] = node.get('size')
     expected = {name: item['size'] for name, item in manifest['files'].items()}
     if set(files) != set(expected) | {'manifest.json'} or any(files.get(k) != v for k, v in expected.items()):
         raise BackupError('Remote snapshot inventory differs from the manifest')
+    if manifest['version'] == 2:
+        tree = manifest['documents']
+        root = Path(tree['path'])
+        with tempfile.TemporaryFile(dir=repo.data) as listing:
+            repo.restic('ls', '--json', '--recursive', snapshot, str(root), output=listing)
+            listing.seek(0)
+            actual = documents.inventory(documents.snapshot_entries(listing, root))
+        if {'path': str(root), **actual} != tree:
+            raise BackupError('Remote documents inventory differs from the manifest')
 
 
-def snapshot_id(repo, requested, status):
-    if requested:
-        if not ID.fullmatch(requested):
+def repository_snapshots(repo):
+    rows = json.loads(repo.restic('snapshots', '--json', '--no-lock', '--tag', TAG))
+    for row in rows or []:
+        # restic can emit nanoseconds, while Python 3.9 accepts six fractional digits.
+        stamp = re.sub(r'\.(\d+)', lambda match: '.' + match[1][:6].ljust(6, '0'), row['time'])
+        row['time'] = datetime.fromisoformat(stamp.replace('Z', '+00:00'))
+    return sorted(rows or [], key=lambda row: row['time'], reverse=True)
+
+
+def snapshot_id(repository, requested, status):
+    selected = requested or status.get('snapshot')
+    if selected:
+        if not catalog.SNAPSHOT_ID.fullmatch(selected):
             raise BackupError('Provide a snapshot ID')
-        return requested
-    if status.get('snapshot'):
-        return status['snapshot']
-    snapshots = json.loads(repo.restic('snapshots', '--json', '--tag', TAG))
-    for candidate in sorted(snapshots or [], key=lambda row: row['time'], reverse=True):
+        return selected
+    repo = repository()
+    for candidate in repository_snapshots(repo):
         try:
             manifest = remote_manifest(repo, candidate['id'])
             remote_inventory(repo, candidate['id'], manifest)
-        except (BackupError, ValueError, KeyError):
+        except (BackupError, ValueError, KeyError, TypeError):
             continue
         return candidate['id']
     raise BackupError('No complete snapshot found')
@@ -309,12 +361,18 @@ def browse(args, status):
         return Repository(args)
 
     @lru_cache(maxsize=1)
-    def manifest():
+    def manifest(selected):
         return remote_manifest(repository(), selected)
 
-    def load_manifest():
+    def list_snapshots():
         try:
-            value = manifest()
+            return repository_snapshots(repository())
+        except (BackupError, OSError, ValueError, KeyError, TypeError) as error:
+            raise catalog.SnapshotError from error
+
+    def load_manifest(selected):
+        try:
+            value = manifest(selected)
             if not Path(value['source']).is_absolute():
                 raise BackupError('Invalid source in snapshot manifest')
             return value
@@ -322,7 +380,7 @@ def browse(args, status):
             raise catalog.AttachmentError from error
 
     @contextmanager
-    def download_file(path, expected):
+    def download_file(selected, path, expected):
         with ExitStack() as stack:
             try:
                 output = stack.enter_context(tempfile.TemporaryFile(dir=args.data_dir))
@@ -336,40 +394,91 @@ def browse(args, status):
             yield output
 
     with tempfile.TemporaryDirectory(prefix='browse-', dir=args.data_dir) as directory:
-        index = Path(directory) / 'catalog.sqlite'
-        selected = status.get('snapshot')
-        cached = args.data_dir / f'catalog-{selected}.sqlite'
-        if not args.snapshot and selected and cached.is_file():
-            shutil.copyfile(cached, index)
-        else:
-            selected = snapshot_id(repository(), args.snapshot, status)
-            expected = manifest()['files']['catalog.sqlite']
-            with index.open('xb') as out:
-                repository().dump(selected, 'catalog.sqlite', out)
-            if digest(index) != expected:
-                raise BackupError('Search index failed checksum')
-        catalog.serve(index, selected, not args.no_open,
+        index_lock = Lock()
+
+        def load_index(selected):
+            index = Path(directory) / f'catalog-{selected}.sqlite'
+            if index.is_file():
+                return index
+            with index_lock:
+                if index.is_file():
+                    return index
+                cached = args.data_dir / index.name
+                try:
+                    # Keep the immutable index available even when a later backup prunes the cache.
+                    os.link(cached, index)
+                    return index
+                except FileNotFoundError:
+                    pass
+                staging = index.with_suffix('.new')
+                try:
+                    expected = manifest(selected)['files']['catalog.sqlite']
+                    with staging.open('xb') as out:
+                        repository().dump(selected, 'catalog.sqlite', out)
+                    if digest(staging) != expected:
+                        raise BackupError('Search index failed checksum')
+                    staging.replace(index)
+                finally:
+                    staging.unlink(missing_ok=True)
+                return index
+
+        def open_index(selected):
+            try:
+                return load_index(selected)
+            except (BackupError, OSError, ValueError, KeyError, TypeError) as error:
+                raise catalog.SnapshotError from error
+
+        selected = snapshot_id(repository, args.snapshot, status)
+        load_index(selected)
+        catalog.serve(selected, not args.no_open, list_snapshots=list_snapshots, open_index=open_index,
                       load_manifest=load_manifest, download_file=download_file)
+
+
+def documents_source(repo, session_source):
+    configured = repo.documents_source
+    if configured is None:
+        return None
+    if configured.is_symlink():
+        raise BackupError('Documents source must be a directory, not a symlink')
+    root = documents.absolute_tree(str(configured.resolve(strict=True)))
+    for other in (repo.data, session_source, repo.local.resolve() if repo.local else None):
+        if other is not None and (root == other or root in other.parents or other in root.parents):
+            raise BackupError('Documents source overlaps session data or the backup repository')
+    return root
 
 
 def run_backup(args, repo, status):
     bundle = args.data_dir / 'bundle'
     previous = args.data_dir / ('catalog-' + status.get('snapshot', 'none') + '.sqlite')
     repo.restic('cat', 'config')  # Check connectivity before reading the live store.
+    session_source = args.source.resolve()
+    tree_source = documents_source(repo, session_source)
     try:
         for attempt in range(3):
             if bundle.exists():
                 shutil.rmtree(bundle)
             try:
-                manifest, threads = capture(args.source.resolve(), bundle, previous)
+                manifest, threads = capture(session_source, bundle, previous)
                 break
             except (OSError, sqlite3.Error, BackupError, subprocess.CalledProcessError) as error:
                 if attempt == 2:
                     raise BackupError(f'Capture failed after three attempts: {error}') from error
                 time.sleep(2 ** attempt)
-        output = repo.restic('backup', '--json', '--host', repo.host, '--tag', TAG, 'bundle',
-                             cwd=args.data_dir)
-        summary = next(row for row in map(json.loads, output.splitlines()) if row.get('message_type') == 'summary')
+        filters = []
+        sources = ['bundle']
+        tag = TAG
+        if tree_source is not None:
+            tree = {'path': str(tree_source), **documents.scan(tree_source, exclude=filters)}
+            manifest.update(version=2, documents=tree)
+            write_json(bundle / 'manifest.json', manifest)
+            sources.append(str(tree_source))
+            tag += ',' + DOCUMENTS_TAG
+        output = repo.restic('backup', '--json', '--host', repo.host, '--tag', tag,
+                             *(f'--exclude={pattern}' for pattern in filters), *sources, cwd=args.data_dir)
+        summary = next((row for row in map(json.loads, output.splitlines())
+                        if row.get('message_type') == 'summary'), {})
+        if not summary.get('snapshot_id'):
+            raise BackupError('restic backup did not return a snapshot ID')
         snapshot = summary['snapshot_id']
         if remote_manifest(repo, snapshot) != manifest:
             raise BackupError('Remote manifest differs from the captured batch')
@@ -391,13 +500,19 @@ def run_backup(args, repo, status):
         status.update(snapshot=snapshot, success=int(time.time()), error=None,
                       active=manifest['active'], archived=manifest['archived'],
                       added_bytes=summary.get('data_added_packed', summary.get('data_added')))
+        fields = ['snapshot', 'active', 'archived', 'added_bytes']
+        if tree_source is not None:
+            status['documents'] = {key: manifest['documents'][key] for key in ('files', 'bytes')}
+            fields.append('documents')
+        else:
+            status.pop('documents', None)
         if args.command == 'tick':
             status['scheduled_successes'] = status.get('scheduled_successes', 0) + 1
         write_json(args.data_dir / 'status.json', status)
         for index in args.data_dir.glob('catalog-*.sqlite'):
             if index not in (cached, previous):
                 index.unlink()
-        print(json.dumps({key: status[key] for key in ('snapshot', 'active', 'archived', 'added_bytes')}))
+        print(json.dumps({key: status[key] for key in fields}))
     finally:
         if bundle.exists():
             shutil.rmtree(bundle)
@@ -420,6 +535,13 @@ def restore(repo, snapshot, target, codex_root):
             path = scratch / name
             if path.is_symlink() or digest(path) != expected:
                 raise BackupError('Restored file failed checksum: ' + name)
+        if manifest['version'] == 2:
+            tree = manifest['documents']
+            destination = scratch / 'documents' / 'Codex'
+            destination.mkdir(parents=True)
+            repo.restic('restore', snapshot + ':' + tree['path'], '--verify', '--target', str(destination))
+            if {'path': tree['path'], **documents.scan(destination)} != tree:
+                raise BackupError('Restored documents inventory differs from the manifest')
         if codex_root:
             with closing(sqlite3.connect(scratch / 'codex/state_5.sqlite')) as db, db:
                 entries = db.execute('SELECT id, rollout_path FROM threads').fetchall()
@@ -430,7 +552,10 @@ def restore(repo, snapshot, target, codex_root):
                                                   'verified_before_path_rewrite': True})
         for path in scratch.iterdir():
             path.rename(target / path.name)
-    print(f'Restored and verified {len(manifest["files"])} files in {target}')
+    count = len(manifest['files'])
+    if manifest['version'] == 2:
+        count += manifest['documents']['files']
+    print(f'Restored and verified {count} files in {target}')
 
 
 def recovery_key(args):
@@ -489,7 +614,7 @@ def install_agent(data):
     plist.parent.mkdir(exist_ok=True, mode=0o700)
     payload = {'Label': LABEL, 'ProgramArguments': [sys.executable, str(Path(__file__).resolve()),
                                                    '--data-dir', str(data), 'tick'],
-               'RunAtLoad': True, 'StartInterval': 3600,
+               'StartCalendarInterval': {'Hour': 10, 'Minute': 0},
                'EnvironmentVariables': {'PATH': clean_env()['PATH']},
                'StandardOutPath': str(data / 'launchd.log'),
                'StandardErrorPath': str(data / 'launchd.log')}
@@ -505,8 +630,7 @@ def schedule(args, status):
     started = status.setdefault('enabled_since', now)
     write_json(args.data_dir / 'status.json', status)
     try:
-        if now - status.get('success', 0) >= DAY:
-            run_backup(args, Repository(args), status)
+        run_backup(args, Repository(args), status)
         if now - status.get('weekly_check', 0) >= 7 * DAY:
             Repository(args).restic('check')
             status['weekly_check'] = now
@@ -578,9 +702,18 @@ def main():
         CosTarget.load(args.data_dir / 'connection.json')
         install_agent(args.data_dir)
         return
-    if args.command == 'tick':
+    if args.command in ('run', 'tick'):
         with locked(args.data_dir):
-            schedule(args, read_json(status_file, {}))
+            status = read_json(status_file, {})
+            if args.command == 'tick':
+                schedule(args, status)
+            else:
+                try:
+                    run_backup(args, Repository(args), status)
+                except Exception as error:
+                    status['error'] = str(error)
+                    write_json(status_file, status)
+                    raise
         return
     if args.command == 'browse':
         browse(args, status)
@@ -588,7 +721,7 @@ def main():
 
     repo = Repository(args, maintenance=args.command == 'maintain' and args.apply)
     if args.command in ('restore', 'dump'):
-        selected = snapshot_id(repo, args.snapshot, status)
+        selected = snapshot_id(lambda: repo, args.snapshot, status)
         if args.command == 'restore':
             restore(repo, selected, args.to.absolute(), args.codex_root.resolve() if args.codex_root else None)
         else:
@@ -601,14 +734,6 @@ def main():
             print(repo.restic('init', '--repository-version', '2').decode().strip())
         elif args.command == 'probe':
             print(repo.restic('snapshots', '--no-lock').decode().strip())
-        elif args.command == 'run':
-            status = read_json(status_file, {})
-            try:
-                run_backup(args, repo, status)
-            except Exception as error:
-                status['error'] = str(error)
-                write_json(status_file, status)
-                raise
         elif args.command == 'check':
             flags = ('--read-data',) if args.full else ()
             print(repo.restic('check', *flags).decode().strip())

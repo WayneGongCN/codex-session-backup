@@ -25,6 +25,7 @@
     <a class="wordmark" href="/zh-cn/" aria-label="Codex 会话备份首页"><span class="mark" aria-hidden="true"></span>Codex 会话备份</a>
     <nav aria-label="主导航">
       <a href="#workflow">使用流程</a>
+      <a href="#changelog">更新日志</a>
       <a href="#release">下载</a>
       <div class="languages" role="group" aria-label="语言">
         <a href="/" lang="en" hreflang="en">English</a>
@@ -70,10 +71,41 @@
       </div>
     </section>
 
+    <section class="changelog shell" id="changelog" aria-labelledby="changelog-title">
+      <h2 id="changelog-title">更新日志</h2>
+      <ol class="versions">
+        <li>
+          <div>
+            <h3><a href="https://github.com/WayneGongCN/codex-session-backup/releases/tag/v0.2.0">v0.2.0</a></h3>
+            <time datetime="2026-11-16">2026 年 11 月 16 日</time>
+          </div>
+          <ul>
+            <li>在搜索页切换备份快照、查看渲染后的 Markdown，或从搜索结果在 Codex 中打开本地会话。</li>
+            <li>可选将报告等产物目录与会话一并备份和恢复。</li>
+            <li>通过 restic 原生 S3 后端直连腾讯云 COS，定时备份改在 Mac 本地时间每天 10:00 运行。</li>
+          </ul>
+        </li>
+        <li>
+          <div>
+            <h3><a href="https://github.com/WayneGongCN/codex-session-backup/releases/tag/v0.1.1">v0.1.1</a></h3>
+            <time datetime="2026-11-12">2026 年 11 月 12 日</time>
+          </div>
+          <p>支持从已有快照单独下载和校验会话附件。</p>
+        </li>
+        <li>
+          <div>
+            <h3><a href="https://github.com/WayneGongCN/codex-session-backup/releases/tag/v0.1.0">v0.1.0</a></h3>
+            <time datetime="2026-11-12">2026 年 11 月 12 日</time>
+          </div>
+          <p>首个公开版本，支持在 macOS 上进行加密增量备份、本地搜索和校验恢复。</p>
+        </li>
+      </ol>
+    </section>
+
     <section class="release shell" id="release" aria-labelledby="release-title">
       <div>
         <h2 id="release-title">下载</h2>
-        <p>在 <a href="https://github.com/WayneGongCN/codex-session-backup/releases/tag/v0.1.1">GitHub Release</a> 查看发布说明并下载 <code>v0.1.1</code> 源码。</p>
+        <p>在 <a href="https://github.com/WayneGongCN/codex-session-backup/releases/latest">GitHub 最新版本</a>查看发布说明并下载源码。</p>
       </div>
       <div>
         <h3>运行环境</h3>

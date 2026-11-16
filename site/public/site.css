@@ -77,7 +77,22 @@ code { font: .86em 'IBM Plex Mono', ui-monospace, monospace; }
 .command code { border-radius: .25rem; background: #d9e6d7; color: #244d3b; padding: .22rem .45rem; }
 .steps article > p:last-child, .release p { color: var(--muted); margin-top: .55rem; max-width: 36ch; }
 
-.release { display: grid; grid-template-columns: 1fr 1fr; gap: 2.25rem; padding-block: clamp(3rem, 7vw, 5rem); }
+.changelog, .release { padding-block: clamp(3rem, 7vw, 5rem); }
+.versions { list-style: none; margin: 2rem 0 0; padding: 0; }
+.versions > li {
+  display: grid;
+  grid-template-columns: 10rem minmax(0, 1fr);
+  gap: .5rem 1.5rem;
+  border-top: 1px solid var(--line);
+  padding-block: 1.2rem;
+  color: var(--muted);
+}
+.versions h3 { color: var(--ink); }
+.versions time { font-size: .85rem; }
+.versions ul { padding-inline-start: 1.15rem; margin: 0; }
+.versions ul li + li { margin-top: .35rem; }
+
+.release { display: grid; grid-template-columns: 1fr 1fr; gap: 2.25rem; border-top: 1px solid var(--line); }
 .release > div:last-child { align-self: end; }
 .footer { border-top: 1px solid var(--line); padding-block: 1.25rem 2rem; display: flex; justify-content: space-between; flex-wrap: wrap; gap: .5rem 1.5rem; color: var(--muted); font-size: .82rem; }
 
@@ -91,7 +106,7 @@ code { font: .86em 'IBM Plex Mono', ui-monospace, monospace; }
   nav { flex-wrap: wrap; gap: .45rem 1rem; }
   .hero { padding-block: 3rem; gap: 2rem; }
   h1 { font-size: clamp(2.9rem, 10.5vw, 3.7rem); }
-  .steps, .release { grid-template-columns: 1fr; }
+  .steps, .release, .versions > li { grid-template-columns: 1fr; }
 }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }

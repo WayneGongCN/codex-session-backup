@@ -2,7 +2,7 @@
 
 Back up, search, and restore local Codex chats on macOS. The CLI uses restic’s native S3 backend to store encrypted incremental snapshots in a private Tencent Cloud COS bucket. A local browser interface lets you search active and archived chats.
 
-[简体中文](https://github.com/WayneGongCN/codex-session-backup/blob/main/README.zh-CN.md) · [Project homepage](https://codex-session-backup.waynegong.com/) · [Release v0.1.1](https://github.com/WayneGongCN/codex-session-backup/releases/tag/v0.1.1)
+[简体中文](https://github.com/WayneGongCN/codex-session-backup/blob/main/README.zh-CN.md) · [Project homepage](https://codex-session-backup.waynegong.com/) · [Latest release](https://github.com/WayneGongCN/codex-session-backup/releases/latest)
 
 ![Local search with synthetic chats, keyword highlights, filters, and archive status](docs/search-demo-en.png)
 
@@ -27,7 +27,7 @@ Keep the scripts, Python modules, and `search_assets/` together. Use a stable in
 python3 -m unittest -v
 ```
 
-The test creates synthetic chats, a disposable restic repository, and a temporary password. It runs two backups, searches archived chats, restores an earlier snapshot, and checks repository integrity. It needs no cloud account, Keychain credentials, or real Codex chats.
+The test uses synthetic chats, documents, and a disposable restic repository to exercise incremental backups, archived search, combined restores, and integrity checks.
 
 ### Back up to COS
 
@@ -44,6 +44,6 @@ The session viewer renders Markdown by default. Use the Markdown switch to see t
 
 ![Session viewer with rendered Markdown, downloadable attachments, and a linked contents panel](docs/session-demo-en.png)
 
-The tool covers local chats, archives, and supported attachment directories. Back up Git workspaces and external files separately. Account sign-in uses Codex's normal sign-in flow. See the [full usage guide](docs/usage.md) for recovery, scheduling, retention, and compatibility.
+The tool covers local chats, archives, and supported attachment directories. Set `documents_source` to include generated files in the same snapshot. Back up Git workspaces separately and use Codex's normal sign-in flow for account access. See the [usage guide](docs/usage.md#将产物纳入同一快照) for setup.
 
 [MIT License](LICENSE)

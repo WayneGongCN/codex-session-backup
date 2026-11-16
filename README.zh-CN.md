@@ -2,7 +2,7 @@
 
 在 macOS 上增量备份、搜索和校验恢复 Codex 会话。用 restic 原生 S3 后端将加密快照存入私有腾讯云 COS 桶，并在本地浏览普通和归档会话。
 
-[English](https://github.com/WayneGongCN/codex-session-backup/blob/main/README.md) · [项目首页](https://codex-session-backup.waynegong.com/zh-cn/) · [使用指南](docs/usage.md) · [下载 v0.1.1](https://github.com/WayneGongCN/codex-session-backup/releases/tag/v0.1.1)
+[English](https://github.com/WayneGongCN/codex-session-backup/blob/main/README.md) · [项目首页](https://codex-session-backup.waynegong.com/zh-cn/) · [使用指南](docs/usage.md) · [下载最新版本](https://github.com/WayneGongCN/codex-session-backup/releases/latest)
 
 ![本地搜索页截图，使用合成会话展示关键词高亮、筛选条件和归档状态](docs/search-demo-zh-cn.png)
 
@@ -27,7 +27,7 @@ cd codex-session-backup
 python3 -m unittest -v
 ```
 
-测试自动生成合成会话、临时 restic 仓库和口令，演练两次备份、归档检索、历史快照恢复和完整性校验。测试使用临时目录，无需云账号、钥匙串凭据或真实 Codex 会话。
+测试使用合成会话、产物和临时 restic 仓库，演练增量备份、归档检索、联合快照恢复和完整性校验。
 
 ### 备份到 COS
 
@@ -44,6 +44,6 @@ python3 -m unittest -v
 
 ![会话详情页截图，展示 Markdown 正文、附件下载和会话目录](docs/session-demo-zh-cn.png)
 
-工具备份本地会话、归档和受支持的附件目录。Git 工作区、外部文件与账号登录需要各自的恢复方式。详见[备份范围和兼容性](docs/usage.md#备份范围和兼容性)。
+工具备份本地会话、归档和受支持的附件目录。配置 `documents_source` 后，报告等产物也可以和会话一起恢复。Git 工作区与账号登录使用各自的恢复方式。详见[产物备份配置](docs/usage.md#将产物纳入同一快照)。
 
 [MIT License](LICENSE)

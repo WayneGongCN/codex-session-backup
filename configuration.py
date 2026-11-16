@@ -3,8 +3,18 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Optional
 
 DATA = Path.home() / 'Library/Application Support/Codex Session Backup'
+
+
+def documents_path(data):
+    value = data.get('documents_source')
+    if value is None:
+        return None
+    if not isinstance(value, str) or '\0' in value or not Path(value).is_absolute():
+        raise ValueError('documents_source must be an absolute path')
+    return Path(value)
 
 
 @dataclass(frozen=True)
@@ -16,6 +26,7 @@ class CosTarget:
     backup_host: str
     gpg_fingerprint: str = ''
     gpg_public_key_url: str = ''
+    documents_source: Optional[Path] = None
 
     @classmethod
     def load(cls, file):
@@ -40,7 +51,8 @@ class CosTarget:
             raise ValueError('Invalid COS region')
         return cls(**fields, backup_host=data.get('backup_host', 'codex-mac'),
                    gpg_fingerprint=data.get('gpg_fingerprint', ''),
-                   gpg_public_key_url=data.get('gpg_public_key_url', ''))
+                   gpg_public_key_url=data.get('gpg_public_key_url', ''),
+                   documents_source=documents_path(data))
 
     @property
     def repository_path(self):

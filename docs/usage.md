@@ -61,6 +61,12 @@ python3 provision_cos.py --profile PROFILE --apply
 
 `run` 回读远端清单、对象清单和样本会话，通过后记录已验证的快照 ID。`check --full` 读取完整仓库数据，耗时和流量随仓库增长。
 
+### 将产物纳入同一快照
+
+在 `connection.json` 中将 `documents_source` 设为产物目录的绝对路径，例如 `/Users/you/Documents/Codex`。`run` 和定时任务会将会话与产物写入同一份加密快照，`status` 的 `documents` 字段显示已核验的文件数和字节数。此设置默认关闭。目录缺失、读取失败或远端清单不符时，任务失败并保留上一份成功快照 ID。
+
+备份保留报告、素材、归档、裸仓库和符号链接。含 `.git` 文件或目录的工作区整棵排除，其中的报告也会随之排除。`node_modules`、`.venv`、`__pycache__`、`.pytest_cache`、`.mypy_cache`、`.ruff_cache`、`.cache`、`.npm`、`.pnpm-store`、`.DS_Store` 和 Unix 套接字也会跳过。符号链接的目标按实际位置处理，备份过程只读取链接本身。产物在备份期间逐文件读取，建议在大文件写入结束后做首份备份。
+
 ## 搜索、恢复与回滚
 
 ```sh
@@ -69,23 +75,29 @@ python3 provision_cos.py --profile PROFILE --apply
 ./codex-backup restore --snapshot SNAPSHOT --to /path/to/empty-restore
 ```
 
-搜索页只监听本机回环地址，可按关键词、项目、更新日期和归档状态筛选。终端打印的搜索地址带有访问令牌，请仅在本机使用。按 Ctrl-C 关闭搜索页。历史搜索会解密对应快照的索引。更新日期按 UTC+8 筛选。
+搜索页只监听本机回环地址，可按关键词、项目、更新日期和归档状态筛选。终端打印的搜索地址带有访问令牌，请仅在本机使用。按 Ctrl-C 关闭搜索页。更新日期按 UTC+8 筛选。
+
+点击搜索结果中的「在 Codex 中打开」可跳到桌面端的本地会话。点击会话标题可查看所选快照中的记录，包括只保存在备份中的会话。
+
+点击右上角「选择快照」查看备份库中的快照。列表按备份时间从新到旧排列，显示时间（UTC+8）、快照 ID、备份主机和当前选中项。再次打开或刷新列表即可看到新备份。选择快照会保留搜索条件，并使用该快照的索引、会话正文和附件。工具优先使用本地已有的索引，缺失时才从备份库下载、解密并校验。
 
 会话详情默认在本地渲染 Markdown。关闭 Markdown 开关可查看原文，也可以导出 Markdown。右侧目录支持跳转到消息和 Markdown 标题。正文中的图片显示为替代文本，快照中的图片可以从附件下载。
 
 左侧「附件」列出消息中引用且在所选快照中的文件，以及快照中按会话 ID 存放的产物。点击下载按钮时，工具从同一快照读取、解密并校验该文件，无需完整恢复。查看附件清单和下载需要能访问备份库。窄屏下，附件和目录移到正文上方，可以折叠。
 
-`restore` 根据快照清单校验所有恢复文件。目标目录必须为空。需要放回 Codex 使用时，恢复阶段加 `--codex-root /absolute/path/to/final/.codex`，使恢复副本内的会话日志指针适配最终位置。
+`restore` 校验同一快照中的会话和产物，目标目录必须为空。会话写入 `codex/`，联合快照中的产物写入 `documents/Codex/`。早期快照只包含会话。需要放回 Codex 使用时，恢复阶段加 `--codex-root /absolute/path/to/final/.codex`，使恢复副本内的会话日志指针适配最终位置。
 
 1. 结束活跃任务并退出 Codex。在目标数据目录旁建回滚目录，移走本次恢复涉及的同名文件、同名目录及对应的 SQLite WAL/SHM 文件。保留源数据和恢复目录。
-2. 把恢复结果的 `codex/` 内容放到最终 Codex 数据目录。使用兼容的 Codex 版本和原账号启动，检查普通、归档和压缩会话。
+2. 把恢复结果的 `codex/` 内容放到最终 Codex 数据目录。有产物时，先保留原产物目录，再将 `documents/Codex/` 放回所需位置。使用兼容的 Codex 版本和原账号启动，检查普通、归档和压缩会话。
 3. 如需回滚，退出 Codex，移走本次放入的文件和目录，再从回滚目录还原原文件。恢复结果中的 `catalog.sqlite` 和清单可留在恢复目录供查验。
 
 ## 定时备份与保留
 
-手动备份并验证空目录恢复后，从稳定的安装位置执行 `./codex-backup install-agent`。LaunchAgent 在用户登录期间每小时检查一次，距离上次成功约 24 小时后尝试备份。它也会执行每周仓库检查、约每 90 天全量检查和每月保留预览。Mac 登录状态、钥匙串解锁和网络连通性会影响运行。用 `status` 查看最近的成功快照、`scheduled_successes` 和错误。定时运行日志保存在数据目录的 `launchd.log`。
+手动备份并验证空目录恢复后，从稳定的安装位置执行 `./codex-backup install-agent`。LaunchAgent 在用户登录期间每天按 Mac 的本地时间 10:00 备份并同步到 COS，也会执行每周仓库检查、约每 90 天全量检查和每月保留预览。Mac 登录状态、钥匙串解锁和网络连通性会影响运行。用 `status` 查看最近的成功快照、`scheduled_successes` 和错误。定时运行日志保存在数据目录的 `launchd.log`。
 
-数据目录的 `retention-preview.txt` 保存每月预览。当前保留策略为最近 2 份，以及 30 天日备份、12 周周备份和 12 个月月备份。保留组由 restic 按主机名、路径和标签计算。确认预览和最新恢复点后，才使用维护身份执行删除。
+启用产物备份后，用 `launchctl kickstart "gui/$(id -u)/com.waynegong.codex-session-backup"` 触发一次实际定时任务，再从 `status` 核对 `scheduled_successes`、新快照 ID 和产物统计。macOS 对 `Documents` 单独管理访问权限。后台任务收到 `Operation not permitted` 时，在系统设置中为 LaunchAgent 使用的 Python 和 restic 开启文稿访问，再重试。 [Apple 的文件与文件夹权限说明](https://support.apple.com/en-bn/guide/mac-help/mchld5a35146/mac)
+
+数据目录的 `retention-preview.txt` 保存每月预览。当前保留策略为最近 2 份，以及 30 天日备份、12 周周备份和 12 个月月备份。restic 按主机名和源路径分组，联合快照与旧会话快照各自计算保留点。确认预览和最新恢复点后，才使用维护身份执行删除。
 
 ```sh
 ./codex-backup maintain
@@ -102,5 +114,5 @@ rm "$HOME/Library/LaunchAgents/com.waynegong.codex-session-backup.plist"
 ## 备份范围和兼容性
 
 - 默认读取 `~/.codex`。覆盖 `sessions`、`archived_sessions`、对应的会话和任务状态 SQLite、会话索引，以及 Codex 数据目录下的附件、生成图片和其他受支持产物。备份和恢复针对工具支持的本地 SQLite 与日志结构，升级 Codex 后可先做一次隔离恢复验证。
-- `auth.json`、全局配置、Git 工作区和外部文件走各自的备份或登录流程。会话正文和附件可能包含用户粘贴的敏感内容。restic 加密远端快照，本地缓存、恢复结果及 Markdown 导出包含可读内容，适合存放于启用 FileVault 的卷。
+- `~/.codex/auth.json`、全局配置、Git 工作区和产物目录以外的文件走各自的备份或登录流程。会话正文、附件和产物可能包含敏感内容。restic 加密远端快照，本地缓存、恢复结果及 Markdown 导出包含可读内容，适合存放于启用 FileVault 的卷。
 - 默认状态和缓存目录是 `~/Library/Application Support/Codex Session Backup`。使用 `--local-repo` 演练时应同时指定隔离的 `--data-dir`、合成数据的 `--source`，并设置测试专用的 `CODEX_BACKUP_TEST_PASSWORD`。本地演练模式与日常 COS 备份的凭据管理相互独立。
